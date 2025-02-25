@@ -1,0 +1,53 @@
+from shard_config import Config
+from os.path import basename
+
+config = Config()
+
+
+rule All:
+    input:
+        expand(
+            f"{output_dir}/shard_{{shard}}.ped.db",
+            output_dir=config.output_dir,
+            shard=range(config.n_shards),
+        ),
+        expand(
+            f"{output_dir}/shard_{{shard}}.ped",
+            output_dir=config.output_dir,
+            shard=range(config.n_shards),
+        ),
+
+
+rule ShardedGiggleIndex:
+    input:
+        beds=lambda w: [
+            f"{Config.bed_dir}/{sample}.bed.gz"
+            for sample in config.partitions()[w.shard]
+        ],
+    output:
+        copied_beds=directory(f"{config.output_dir}/bed_{{shard}}"),
+        giggle_index=directory(f"{config.output_dir}/shard_{{shard}}"),
+    shell:
+        """
+        bash scripts/make_giggle_shard.sh \
+        -i '{input.beds}' \
+        -b '{output.copied_beds}' \
+        -g '{output.giggle_index}'
+        """
+
+
+rule ShardedStixIndex:
+    input:
+        index=rules.ShardedGiggleIndex.output.giggle_index,
+        beds=rules.ShardedGiggleIndex.output.copied_beds,
+    output:
+        ped="{output_dir}/shard_{shard}.ped",
+        db="{output_dir}/shard_{shard}.ped.db",
+    shell:
+        """
+        python scripts/make_stix_shard.py \
+        -i {input.index} \
+        -b {input.beds} \
+        -p {output.ped} \
+        -d {output.db}
+        """
