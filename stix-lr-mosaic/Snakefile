@@ -1,0 +1,90 @@
+from utils import find_crams, get_basenames
+
+# =============================================================================
+# Too lazy to make a config file
+INPUT_DIR = "/data/murad/stixLR-redux/COLO829/cram"
+OUTPUT_DIR = "/data/murad/stixLR-redux"
+REFERENCE_GENOME = "/data/ref-genomes/GRCh38_full_analysis_set_plus_decoy_hla.fa"
+SINGULARITY_CONTAINER = "excord-lr_latest.sif"
+# =============================================================================
+
+cram_files = find_crams(INPUT_DIR)
+sample_names = get_basenames(cram_files)
+
+
+# Main rule
+rule all:
+    input:
+        stix_ped=f"{OUTPUT_DIR}/COLO829-SMAHT.ped",
+        stix_db=f"{OUTPUT_DIR}/COLO829-SMAHT.ped.db",
+        giggle_index=f"{OUTPUT_DIR}/giggle_index",
+        sniffles_SVs=expand(
+            f"{OUTPUT_DIR}/sniffles_SV/{{sample}}.SV.vcf.gz",
+            sample=sample_names,
+        ),
+        sniffles_mosaic_SVs=expand(
+            f"{OUTPUT_DIR}/sniffles_mosaic/{{sample}}.mosaic.vcf.gz",
+            sample=sample_names,
+        ),
+
+
+rule ExcordLR:
+    input:
+        cram=f"{INPUT_DIR}/{{sample}}.cram",
+        reference_genome=REFERENCE_GENOME,
+    output:
+        bed=temp(f"{OUTPUT_DIR}/excord_beds/{{sample}}.excord.bed"),
+    threads: 8
+    shell:
+        "bash scripts/run-excord-lr.sh -i {input.cram} -r {input.reference_genome} -o {output.bed} -c "
+
+
+rule BgzipBed:
+    input:
+        bed=rules.ExcordLR.output.bed,
+    output:
+        bed=rules.ExcordLR.output.bed + ".gz",
+    shell:
+        "bgzip -c {input.bed} > {output.bed}"
+
+
+rule GiggleIndex:
+    input:
+        expand(rules.BgzipBed.output.bed, sample=sample_names),
+    output:
+        directory(f"{OUTPUT_DIR}/giggle_index"),
+    shell:
+        "bash scripts/make_giggle_index.sh -i {input} -o {output}"
+
+
+rule StixIndex:
+    input:
+        giggle_index=rules.GiggleIndex.output,
+        bed_dir=rules.BgzipBed.output.bed,
+    output:
+        ped=f"{OUTPUT_DIR}/COLO829-SMAHT.ped",
+        db=f"{OUTPUT_DIR}/COLO829-SMAHT.ped.db",
+    shell:
+        "bash scripts/make_stix_index.sh -g {input.giggle_index} -b {input.bed_dir} -n COLO829-SMAHT -o {output.dir}"
+
+
+rule SnifflesSV:
+    input:
+        cram=f"{INPUT_DIR}/{{sample}}.cram",
+        reference_genome=REFERENCE_GENOME,
+    output:
+        vcf=f"{OUTPUT_DIR}/sniffles_SV/{{sample}}.SV.vcf.gz",
+    threads: 4
+    shell:
+        f"sniffles --input {{input.cram}} --reference {REFERENCE_GENOME} --vcf {{output.vcf}}"
+
+
+rule SnifflesMosaicSV:
+    input:
+        cram=f"{INPUT_DIR}/{{sample}}.cram",
+        reference_genome=REFERENCE_GENOME,
+    output:
+        vcf=f"{OUTPUT_DIR}/sniffles_mosaic/{{sample}}.mosaic.vcf.gz",
+    threads: 4
+    shell:
+        f"sniffles --input {{input.cram}} --reference {REFERENCE_GENOME} --vcf {{output.vcf}} --mosaic"
