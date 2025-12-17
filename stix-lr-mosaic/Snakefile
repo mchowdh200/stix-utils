@@ -41,16 +41,16 @@ rule ExcordLR:
 
 rule BgzipBed:
     input:
-        bed=rules.ExcordLR.output.bed,
+        bed=f"{OUTPUT_DIR}/excord_beds/{{sample}}.excord.bed",
     output:
-        bed=rules.ExcordLR.output.bed + ".gz",
+        bed=f"{OUTPUT_DIR}/excord_beds/{{sample}}.excord.bed.gz",
     shell:
         "bgzip -c {input.bed} > {output.bed}"
 
 
 rule GiggleIndex:
     input:
-        expand(rules.BgzipBed.output.bed, sample=sample_names),
+        expand(f"{OUTPUT_DIR}/excord_beds/{{sample}}.excord.bed.gz", sample=sample_names),
     output:
         directory(f"{OUTPUT_DIR}/giggle_index"),
     shell:
@@ -59,8 +59,8 @@ rule GiggleIndex:
 
 rule StixIndex:
     input:
-        giggle_index=rules.GiggleIndex.output,
-        bed_dir=rules.BgzipBed.output.bed,
+        giggle_index=f"{OUTPUT_DIR}/giggle_index",
+        bed_dir=f"{OUTPUT_DIR}/excord_beds,
     output:
         ped=f"{OUTPUT_DIR}/COLO829-SMAHT.ped",
         db=f"{OUTPUT_DIR}/COLO829-SMAHT.ped.db",
